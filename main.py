@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 
 import users.endpoints as ue
 import auth.endpoints as ae
+import house.endpoints as he
+
 from database.database import engine, Base
 
 if not load_dotenv(".env"):
@@ -13,6 +15,7 @@ app = FastAPI()
 
 app.include_router(ue.router)
 app.include_router(ae.router)
+app.include_router(he.router)
 
 @app.get("/")
 async def root() -> str:

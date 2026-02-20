@@ -56,9 +56,11 @@ class UserEndpoints:
             status_code = status.HTTP_200_OK
             )
 
-    @router.patch("/update", tags=["user"])
-    def update_user(self, data: UpdateUserModel):
-        user = self.db.query(User).filter(User.id == data.id).first()
+    @router.patch("/update/", tags=["user"])
+    def update_user(self, data: UpdateUserModel, current_user: Annotated[User, Depends(get_current_user)]):
+        # TODO resolve this                          ^^^      vvv
+        user = self.db.query(User).filter(User.id == current_user.id).first()
+        
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
