@@ -15,10 +15,6 @@ from database.database import Base, get_db
 from main import app
 from utils.security import get_password_hash
 
-# Also include the house router for testing (it's not included in main.py)
-import house.endpoints as he
-app.include_router(he.router)
-
 # In-memory SQLite for tests
 TEST_DATABASE_URL = "sqlite:///./test_database.db"
 engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})

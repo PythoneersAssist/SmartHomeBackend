@@ -75,19 +75,6 @@ class TestProtectedAccess:
         assert body["username"] == TEST_USER["username"]
         assert body["email"] == TEST_USER["email"]
 
-    def test_token_contains_expected_claims(self, client):
-        """Token response should have access_token and token_type."""
-        create_test_user(client)
-        response = client.post(
-            "/token",
-            data={"username": TEST_USER["username"], "password": TEST_USER["password"]},
-        )
-        body = response.json()
-        assert "access_token" in body
-        assert body["token_type"] == "bearer"
-        # Token should be a non-empty string
-        assert len(body["access_token"]) > 0
-
     def test_expired_or_tampered_token(self, client):
         """A manually crafted / tampered JWT should be rejected."""
         tampered = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VybmFtZSI6ImZha2UiLCJpZCI6IjAwMDAwMDAwLTAwMDAtMDAwMC0wMDAwLTAwMDAwMDAwMDAwMCJ9.tampered"

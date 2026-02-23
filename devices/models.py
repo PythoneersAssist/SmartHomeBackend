@@ -4,6 +4,10 @@ from uuid import UUID
 
 class CreateDeviceModel(BaseModel):
     name: str
-    _type: DeviceType
-    parameters: dict
+    device_type: DeviceType
     room_id: UUID
+
+class UpdateDeviceModel(BaseModel):
+    device_id: UUID
+    name: str | None = None
+    parameters: dict | None = None

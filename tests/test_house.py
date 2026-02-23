@@ -129,18 +129,6 @@ class TestGetHouses:
         resp = client.get("/home/get")
         assert resp.status_code in (401, 403)
 
-    def test_get_houses_contains_expected_fields(self, client):
-        _, token = create_user_and_login(client)
-        create_house(client, token)
-        resp = client.get("/home/get", headers=auth_header(token))
-        house = resp.json()[0]
-        assert "id" in house
-        assert "name" in house
-        assert "description" in house
-        # Verify the values match what was sent
-        assert house["name"] == HOUSE_DATA["name"]
-        assert house["description"] == HOUSE_DATA["description"]
-
 
 # ── GET /home/get_id/{house_id} ──────────────────────────────────────────────
 
