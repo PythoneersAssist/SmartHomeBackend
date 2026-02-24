@@ -7,8 +7,8 @@ from uuid import UUID
 
 from database.database import get_db
 from database.models import User, House, Room
-from house.models import CreateHouseModel, UpdateHouseModel
-from auth.endpoints import get_current_user
+from api.house.models import CreateHouseModel, UpdateHouseModel
+from api.auth.endpoints import get_current_user
 
 router = APIRouter(prefix="/home")
 

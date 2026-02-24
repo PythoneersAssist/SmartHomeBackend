@@ -8,8 +8,8 @@ from uuid import UUID
 from database.database import get_db
 from database.models import User, House, Room, Device
 from database.enums import DeviceType
-from devices.models import CreateDeviceModel, UpdateDeviceModel
-from auth.endpoints import get_current_user
+from api.devices.models import CreateDeviceModel, UpdateDeviceModel
+from api.auth.endpoints import get_current_user
 from utils import device_parameters
 
 router = APIRouter(prefix="/devices")

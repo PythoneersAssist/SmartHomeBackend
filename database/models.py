@@ -46,7 +46,7 @@ class Device(Base):
     id = Column(UUID, default = uuid4, primary_key = True, index = True, nullable = False)
     name = Column(String, nullable = False)
     type = Column(Enum(DeviceType), default=DeviceType.UNKNOWN)
-    parameters = Column(JSON, default=device_parameters.DEFAULT_DEVICE)
+    parameters = Column(JSON, default=device_parameters.DEFAULT_DEVICE, nullable=False)
 
     room_id = Column(UUID, ForeignKey("rooms.id"), nullable = False)
     room = relationship("Room", back_populates="devices")

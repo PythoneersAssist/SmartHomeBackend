@@ -9,7 +9,7 @@ from uuid import UUID
 
 import jwt
 
-from auth.models import TokenData
+from api.auth.models import TokenData
 from database.database import get_db
 from database.models import User
 from utils.security import verify_password, create_access_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES

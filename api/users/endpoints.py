@@ -8,8 +8,8 @@ from typing import Annotated
 from database.database import get_db
 from database.models import User
 
-from auth.endpoints import get_current_user
-from users.models import CreateUserModel, UpdateUserModel
+from api.auth.endpoints import get_current_user
+from api.users.models import CreateUserModel, UpdateUserModel
 from utils.validation import validate_email, validate_password
 from utils.security import get_password_hash
 

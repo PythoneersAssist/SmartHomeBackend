@@ -2,10 +2,10 @@ import uvicorn
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
-import users.endpoints as ue
-import auth.endpoints as ae
-import house.endpoints as he
-import devices.endpoints as de
+import api.users.endpoints as ue
+import api.auth.endpoints as ae
+import api.house.endpoints as he
+import api.devices.endpoints as de
 
 from database.database import engine, Base
 
