@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from database.enums import DeviceType
 from uuid import UUID
 
 class CreateHouseModel(BaseModel):
@@ -8,5 +7,5 @@ class CreateHouseModel(BaseModel):
 
 class UpdateHouseModel(BaseModel):
     house_id: UUID
-    name: str | None
-    description: str | None
+    name: str | None = None
+    description: str | None = None

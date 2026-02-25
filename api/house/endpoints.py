@@ -16,6 +16,14 @@ router = APIRouter(prefix="/home")
 class HouseEndpoints:
     db: Session = Depends(get_db)
 
+    def _verify_house_ownership(self, house: House, user: User) -> House:
+        if house.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this house"
+            )
+        return house
+
     @router.post("/create", tags=["home"])
     def create_house(self, data: CreateHouseModel, current_user: Annotated[User, Depends(get_current_user)]):
         if self.db.query(House).filter(House.user_id == current_user.id, House.name == data.name).first():
@@ -25,73 +33,116 @@ class HouseEndpoints:
             )
 
         self.db.add(House(
-            name = data.name,
-            description = data.description or "No description provided",
-            user = current_user
+            name=data.name,
+            description=data.description or "No description provided",
+            user=current_user
         ))
         self.db.commit()
 
+        return JSONResponse(
+            content={"message": f"House '{data.name}' created successfully"},
+            status_code=status.HTTP_200_OK
+        )
+
     @router.get("/get", tags=["home"])
     def get_registered_houses(self, current_user: Annotated[User, Depends(get_current_user)]):
-        houses = self.db.query(House).filter(House.user == current_user).all()
-        data = []
+        houses = self.db.query(House).filter(House.user_id == current_user.id).all()
 
+        data = []
         for house in houses:
-            data.append(
-                {
-                    "id" : str(house.id),
-                    "name" : house.name,
-                    "description" : house.description
-                }
-            )
-        return JSONResponse(data, status_code=status.HTTP_200_OK)
+            data.append({
+                "id": str(house.id),
+                "name": house.name,
+                "description": house.description
+            })
+
+        return JSONResponse(
+            content={"message": f"Retrieved {len(data)} houses", "houses": data},
+            status_code=status.HTTP_200_OK
+        )
 
     @router.get("/get_id/{house_id}", tags=["home"])
     def get_registered_house_by_id(self, house_id: UUID, current_user: Annotated[User, Depends(get_current_user)]):
         house = self.db.query(House).filter(House.id == house_id).first()
         if not house:
-            return JSONResponse(content = [], status_code = status.HTTP_404_NOT_FOUND)
-        rooms = self.db.query(Room).filter(Room.house == house).all()
-
-        data = [
-            {
-                "id" : str(house.id),
-                "name" : house.name,
-                "description" : house.description
-            },
-            []
-        ]
-        
-        for room in rooms:
-            data[1].append(
-                {
-                    "room_id" : str(room.id),
-                    "room_name" : room.name,
-                    "room_floor" : room.floor,
-                }
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="House not found"
             )
 
-        return JSONResponse(data, status_code = status.HTTP_200_OK)
+        self._verify_house_ownership(house, current_user)
+
+        rooms = self.db.query(Room).filter(Room.house_id == house.id).all()
+
+        data = {
+            "id": str(house.id),
+            "name": house.name,
+            "description": house.description,
+            "rooms": []
+        }
+
+        for room in rooms:
+            data["rooms"].append({
+                "room_id": str(room.id),
+                "room_name": room.name,
+                "room_floor": room.floor.value if room.floor is not None else None
+            })
+
+        return JSONResponse(
+            content={"message": f"House '{data['name']}' retrieved successfully", "house": data},
+            status_code=status.HTTP_200_OK
+        )
 
     @router.put("/update", tags=["home"])
     def update_registered_house_by_id(self, data: UpdateHouseModel, current_user: Annotated[User, Depends(get_current_user)]):
         house = self.db.query(House).filter(House.id == data.house_id).first()
+        if not house:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="House not found"
+            )
 
+        self._verify_house_ownership(house, current_user)
 
         if data.name:
-            if self.db.query(House).filter(House.user_id == current_user.id, House.name == data.name).first():
+            existing = self.db.query(House).filter(
+                House.user_id == current_user.id,
+                House.name == data.name,
+                House.id != house.id
+            ).first()
+            if existing:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="You already have a house registered with that name"
                 )
             house.name = data.name
-        
-        if data.description:
+
+        if data.description is not None:
             house.description = data.description
 
         self.db.commit()
 
-    @router.delete("/delete", tags=["home"])
-    def delete_house_by_id(self):
-        pass
+        return JSONResponse(
+            content={"message": f"House '{data.name}' updated successfully"},
+            status_code=status.HTTP_200_OK
+        )
+
+    @router.delete("/delete/{house_id}", tags=["home"])
+    def delete_house_by_id(self, house_id: UUID, current_user: Annotated[User, Depends(get_current_user)]):
+        house = self.db.query(House).filter(House.id == house_id).first()
+        if not house:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="House not found"
+            )
+
+        self._verify_house_ownership(house, current_user)
+
+        self.db.delete(house)
+        self.db.commit()
+
+        return JSONResponse(
+            content={"message": f"House '{house.name}' deleted successfully"},
+            status_code=status.HTTP_200_OK
+        )
 
