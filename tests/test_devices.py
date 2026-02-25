@@ -24,7 +24,7 @@ def create_house(client, token, data=None):
     """Create a house via the API and return its ID."""
     payload = data or HOUSE_DATA.copy()
     client.post("/home/create", json=payload, headers=auth_header(token))
-    houses = client.get("/home/get", headers=auth_header(token)).json()
+    houses = client.get("/home/get", headers=auth_header(token)).json()["houses"]
     for h in houses:
         if h["name"] == payload["name"]:
             return h["id"]
