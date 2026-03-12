@@ -92,6 +92,11 @@ class DeviceEndpoints:
         ))
         self.db.commit()
 
+        return JSONResponse(
+            content={"message": f"Device '{data.name}' created successfully"},
+            status_code=status.HTTP_200_OK
+        )
+
     @router.get("/get", tags=["device"])
     def get_registered_devices(self, current_user: Annotated[User, Depends(get_current_user)]):
         devices = (
@@ -160,6 +165,11 @@ class DeviceEndpoints:
             device.parameters = data.parameters
 
         self.db.commit()
+
+        return JSONResponse(
+            content={"message": f"Device '{device.name}' updated successfully"},
+            status_code=status.HTTP_200_OK
+        )
 
     @router.delete("/delete/{device_id}", tags=["device"])
     def delete_device_by_id(self, device_id: UUID, current_user: Annotated[User, Depends(get_current_user)]):

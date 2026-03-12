@@ -57,6 +57,5 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: An
         raise credentials_exception
     user = db.query(User).filter(User.id == UUID(token_data.id)).first()  
     if user is None:
-        print(payload)
         raise credentials_exception
     return user

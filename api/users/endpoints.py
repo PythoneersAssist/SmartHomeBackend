@@ -40,7 +40,7 @@ class UserEndpoints:
                 status_code = status.HTTP_400_BAD_REQUEST,
                 detail = "Email already in use."
                 )
-        print(data.password)
+
         self.db.add(User(
             username = data.username,
             email = data.email,
@@ -96,7 +96,7 @@ class UserEndpoints:
         self.db.commit()
         return JSONResponse(
             content = {
-                "message" : "Account created successfully."
+                "message" : "Account updated successfully."
                 },
             status_code = status.HTTP_200_OK
             )
