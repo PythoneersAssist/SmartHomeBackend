@@ -1,13 +1,11 @@
 from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from jwt.exceptions import InvalidTokenError
+from jose import JWTError, jwt
 from os import getenv
 from sqlalchemy.orm import Session
 from typing import Annotated
 from uuid import UUID
-
-import jwt
 
 from api.auth.models import TokenData
 from database.database import get_db
@@ -53,7 +51,7 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: An
         if _id is None:
             raise credentials_exception
         token_data = TokenData(id=_id, username=username)
-    except InvalidTokenError:
+    except JWTError:
         raise credentials_exception
     user = db.query(User).filter(User.id == UUID(token_data.id)).first()  
     if user is None:

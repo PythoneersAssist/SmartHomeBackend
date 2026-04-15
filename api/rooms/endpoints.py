@@ -7,6 +7,7 @@ from uuid import UUID
 
 from database.database import get_db
 from database.models import User, House, Room, Device
+from database.enums import RoomType
 from api.rooms.models import CreateRoomModel, UpdateRoomModel
 from api.auth.endpoints import get_current_user
 
@@ -52,6 +53,7 @@ class RoomEndpoints:
         self.db.add(Room(
             name=data.name,
             floor=data.floor,
+            room_type=data.room_type,
             house=house
         ))
         self.db.commit()
@@ -84,6 +86,7 @@ class RoomEndpoints:
                 "id": str(room.id),
                 "name": room.name,
                 "floor": room.floor.value if room.floor is not None else None,
+                "room_type": room.room_type.value if room.room_type is not None else RoomType.OTHER.value,
                 "house_id": str(room.house_id)
             })
 
@@ -109,6 +112,7 @@ class RoomEndpoints:
             "id": str(room.id),
             "name": room.name,
             "floor": room.floor.value if room.floor is not None else None,
+            "room_type": room.room_type.value if room.room_type is not None else RoomType.OTHER.value,
             "house_id": str(room.house_id),
             "devices": []
         }
@@ -151,6 +155,9 @@ class RoomEndpoints:
 
         if data.floor is not None:
             room.floor = data.floor
+
+        if data.room_type is not None:
+            room.room_type = data.room_type
 
         self.db.commit()
 

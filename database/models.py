@@ -1,5 +1,5 @@
 from database.database import Base
-from database.enums import FloorType, DeviceType, AutomationTriggerType
+from database.enums import FloorType, RoomType, DeviceType, AutomationTriggerType
 from utils import device_parameters
 
 from sqlalchemy import Column, Integer, String, Boolean, UUID, ForeignKey, Enum, JSON, Float
@@ -35,6 +35,7 @@ class Room(Base):
     id = Column(UUID, default = uuid4, primary_key = True, index = True, nullable = False)
     name = Column(String, nullable = False)
     floor = Column(Enum(FloorType), default = FloorType.ENTRANCE)
+    room_type = Column(Enum(RoomType), default = RoomType.OTHER, nullable = False)
 
     house_id = Column(UUID, ForeignKey("houses.id"), nullable = False)
 

@@ -8,6 +8,40 @@ class FloorType(str, Enum):
     FLOOR_4 = "4th"
     FLOOR_5 = "5th"
 
+
+class RoomType(str, Enum):
+    # Core Rooms
+    LIVING_ROOM = "living_room"
+    KITCHEN = "kitchen"
+    MASTER_BEDROOM = "master_bedroom"
+    BEDROOM = "bedroom"
+    BATHROOM = "bathroom"
+    DINING_ROOM = "dining_room"
+    ENTRANCE_HALLWAY = "entrance_hallway"
+
+    # Work & Storage
+    HOME_OFFICE = "home_office"
+    LIBRARY = "library"
+    LAUNDRY_ROOM = "laundry_room"
+    GARAGE = "garage"
+    STORAGE_ROOM = "storage_room"
+    BASEMENT = "basement"
+    ATTIC = "attic"
+
+    # Leisure
+    GYM = "gym"
+    HOME_THEATER = "home_theater"
+    GAME_ROOM = "game_room"
+    BALCONY = "balcony"
+    TERRACE = "terrace"
+
+    # Outdoor
+    GARDEN = "garden"
+    BACKYARD = "backyard"
+    POOL_AREA = "pool_area"
+
+    OTHER = "other"
+
 class DeviceType(int, Enum):
     LIGHT = 0
     LED_STRIP = 1
