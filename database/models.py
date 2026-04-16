@@ -2,7 +2,7 @@ from database.database import Base
 from database.enums import FloorType, RoomType, DeviceType, AutomationTriggerType
 from utils import device_parameters
 
-from sqlalchemy import Column, Integer, String, Boolean, UUID, ForeignKey, Enum, JSON, Float
+from sqlalchemy import Column, Integer, String, Boolean, UUID, ForeignKey, Enum, JSON, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from uuid import uuid4
 
@@ -67,6 +67,30 @@ class Automation(Base):
     
     device_id = Column(UUID, ForeignKey("devices.id"), nullable = False)
     device = relationship("Device", back_populates="automation")
+    executions = relationship("AutomationExecution", back_populates="automation", cascade="all, delete-orphan")
+
+
+class AutomationExecution(Base):
+    __tablename__ = "automation_executions"
+    __table_args__ = (
+        UniqueConstraint("automation_id", "scheduled_for", name="uq_automation_execution_slot"),
+    )
+
+    id = Column(UUID, default = uuid4, primary_key = True, index = True, nullable = False)
+    scheduled_for = Column(String, nullable = False)
+    executed_at = Column(String, nullable = False)
+    status = Column(String, default = "executed", nullable = False)
+    error_message = Column(String, nullable = True)
+
+    automation_id = Column(UUID, ForeignKey("automations.id"), nullable = False)
+    automation = relationship("Automation", back_populates="executions")
+
+
+class AutomationSchedulerState(Base):
+    __tablename__ = "automation_scheduler_state"
+
+    id = Column(Integer, primary_key = True, nullable = False)
+    last_checked_at = Column(String, nullable = False)
 
 class Notification(Base):
     __tablename__ = "notifications"

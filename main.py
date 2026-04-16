@@ -15,6 +15,7 @@ import api.devices.endpoints as de
 import api.automations.endpoints as auto_e
 import api.energy.endpoints as energy_e
 import api.notifications.endpoints as notif_e
+from api.automations.scheduler import is_scheduler_enabled, scheduler
 
 from database.database import engine, Base, ensure_schema_upgrades
 
@@ -42,6 +43,13 @@ app.include_router(notif_e.router)
 async def startup_db_upgrade() -> None:
     Base.metadata.create_all(bind=engine)
     ensure_schema_upgrades()
+    if is_scheduler_enabled():
+        await scheduler.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_background_services() -> None:
+    await scheduler.stop()
 
 @app.get("/")
 async def root() -> str:

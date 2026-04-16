@@ -7,9 +7,12 @@ from uuid import UUID
 
 from database.database import get_db
 from database.models import User, House, Room, Device
-from database.enums import DeviceType
+from database.enums import DeviceType, AutomationTriggerType
 from api.devices.models import CreateDeviceModel, UpdateDeviceModel
+from api.automations.logic import execute_automation_device_action, should_emit_threshold_automation_trigger
 from api.auth.endpoints import get_current_user
+from api.notifications.ws_manager import notify_automation_triggered, notify_device_status_changed
+from database.models import Automation
 from utils import device_parameters
 
 router = APIRouter(prefix="/devices")
@@ -148,6 +151,8 @@ class DeviceEndpoints:
 
         self._verify_device_ownership(device, current_user)
 
+        previous_parameters = dict(device.parameters or {})
+
         if data.name:
             existing = self.db.query(Device).filter(
                 Device.room_id == device.room_id,
@@ -165,6 +170,45 @@ class DeviceEndpoints:
             device.parameters = data.parameters
 
         self.db.commit()
+
+        updated_parameters = device.parameters or {}
+        old_status = bool(previous_parameters.get("status", False))
+        new_status = bool(updated_parameters.get("status", False))
+
+        if old_status != new_status:
+            notify_device_status_changed(str(current_user.id), str(device.id), new_status)
+
+        if data.parameters is not None:
+            automations = (
+                self.db.query(Automation)
+                .filter(
+                    Automation.device_id == device.id,
+                    Automation.trigger_type.in_(
+                        [AutomationTriggerType.TEMPERATURE, AutomationTriggerType.LUX]
+                    ),
+                )
+                .all()
+            )
+
+            executed_status_change = False
+            for automation in automations:
+                if should_emit_threshold_automation_trigger(automation, updated_parameters):
+                    if execute_automation_device_action(device):
+                        executed_status_change = True
+
+                    notify_automation_triggered(
+                        user_id=str(current_user.id),
+                        automation_id=str(automation.id),
+                        automation_name=automation.name,
+                        device_id=str(device.id),
+                        trigger_type=automation.trigger_type.value if automation.trigger_type is not None else None,
+                        trigger_value=automation.trigger_value,
+                        reason="deviceParameterThreshold",
+                    )
+
+            if executed_status_change:
+                self.db.commit()
+                notify_device_status_changed(str(current_user.id), str(device.id), True)
 
         return JSONResponse(
             content={"message": f"Device '{device.name}' updated successfully"},

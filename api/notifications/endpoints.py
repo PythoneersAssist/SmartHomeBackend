@@ -1,127 +1,66 @@
-
-from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-from fastapi_utils.cbv import cbv
-from sqlalchemy.orm import Session
-from typing import Annotated
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from jose import JWTError, jwt
 from uuid import UUID
 
-from database.database import get_db
-from database.models import User, Notification
-from api.notifications.models import CreateNotificationModel, UpdateNotificationModel
-from api.auth.endpoints import get_current_user
+from api.notifications.ws_manager import connect_user_websocket, disconnect_user_websocket, utc_now_iso
+from utils.security import ALGORITHM, SECRET_KEY
 
-router = APIRouter(prefix="/notifications")
 
-@cbv(router)
-class NotificationEndpoints:
-    db: Session = Depends(get_db)
+router = APIRouter(prefix="/notifications", tags=["notifications"])
 
-    @router.post("/create", tags=["notification"])
-    def create_notification(self, data: CreateNotificationModel, current_user: Annotated[User, Depends(get_current_user)]):
-        self.db.add(Notification(
-            title=data.title,
-            message=data.message,
-            created_at=str(datetime.now()),
-            user=current_user,
-        ))
-        self.db.commit()
 
-        return JSONResponse(
-            content={"message": "Notification created successfully"},
-            status_code=status.HTTP_200_OK
-        )
+def _decode_user_id_from_token(token: str | None) -> str | None:
+    if not token:
+        return None
 
-    @router.get("/get", tags=["notification"])
-    def get_all_notifications(self, current_user: Annotated[User, Depends(get_current_user)]):
-        notifications = (
-            self.db.query(Notification)
-            .filter(Notification.user_id == current_user.id)
-            .all()
-        )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        token_user_id = payload.get("id")
+        if token_user_id is None:
+            return None
+        return str(UUID(token_user_id))
+    except (ValueError, JWTError, TypeError):
+        return None
 
-        data = []
-        for n in notifications:
-            data.append({
-                "id": str(n.id),
-                "title": n.title,
-                "message": n.message,
-                "is_read": n.is_read,
-                "created_at": n.created_at,
-            })
 
-        return JSONResponse(
-            content={"message": f"Retrieved {len(data)} notifications", "notifications": data},
-            status_code=status.HTTP_200_OK
-        )
+def _extract_token(websocket: WebSocket) -> str | None:
+    token_from_query = websocket.query_params.get("token")
+    if token_from_query:
+        return token_from_query
 
-    @router.get("/unread_count", tags=["notification"])
-    def get_unread_count(self, current_user: Annotated[User, Depends(get_current_user)]):
-        count = (
-            self.db.query(Notification)
-            .filter(Notification.user_id == current_user.id, Notification.is_read == False)
-            .count()
-        )
+    auth_header = websocket.headers.get("authorization")
+    if not auth_header:
+        return None
 
-        return JSONResponse(
-            content={"unread_count": count},
-            status_code=status.HTTP_200_OK
-        )
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
 
-    @router.patch("/mark_read/{notification_id}", tags=["notification"])
-    def mark_notification_read(self, notification_id: UUID, current_user: Annotated[User, Depends(get_current_user)]):
-        notification = self.db.query(Notification).filter(Notification.id == notification_id).first()
-        if not notification:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Notification not found"
-            )
-        if notification.user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have access to this notification"
-            )
+    return None
 
-        notification.is_read = True
-        self.db.commit()
 
-        return JSONResponse(
-            content={"message": "Notification marked as read"},
-            status_code=status.HTTP_200_OK
-        )
+@router.websocket("/ws")
+async def notifications_websocket(websocket: WebSocket) -> None:
+    token = _extract_token(websocket)
+    user_id = _decode_user_id_from_token(token)
 
-    @router.patch("/mark_all_read", tags=["notification"])
-    def mark_all_notifications_read(self, current_user: Annotated[User, Depends(get_current_user)]):
-        self.db.query(Notification).filter(
-            Notification.user_id == current_user.id,
-            Notification.is_read == False
-        ).update({"is_read": True})
-        self.db.commit()
+    if user_id is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unauthorized")
+        return
 
-        return JSONResponse(
-            content={"message": "All notifications marked as read"},
-            status_code=status.HTTP_200_OK
-        )
+    await connect_user_websocket(user_id, websocket)
+    await websocket.send_json(
+        {
+            "event": "connected",
+            "timestamp": utc_now_iso(),
+        }
+    )
 
-    @router.delete("/delete/{notification_id}", tags=["notification"])
-    def delete_notification(self, notification_id: UUID, current_user: Annotated[User, Depends(get_current_user)]):
-        notification = self.db.query(Notification).filter(Notification.id == notification_id).first()
-        if not notification:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Notification not found"
-            )
-        if notification.user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have access to this notification"
-            )
-
-        self.db.delete(notification)
-        self.db.commit()
-
-        return JSONResponse(
-            content={"message": "Notification deleted successfully"},
-            status_code=status.HTTP_200_OK
-        )
+    try:
+        while True:
+            message = await websocket.receive_text()
+            if message.strip().lower() == "ping":
+                await websocket.send_json({"event": "pong", "timestamp": utc_now_iso()})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await disconnect_user_websocket(user_id, websocket)

@@ -5,6 +5,8 @@ import sys
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-unit-tests")
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+os.environ.setdefault("REALTIME_ENERGY_INTERVAL_SECONDS", "0.2")
+os.environ.setdefault("AUTOMATION_SCHEDULER_ENABLED", "0")
 
 import pytest
 from fastapi.testclient import TestClient

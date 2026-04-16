@@ -8,7 +8,10 @@ from uuid import UUID
 from database.database import get_db
 from database.models import User, House, Room, Device, Automation
 from api.automations.models import CreateAutomationModel, UpdateAutomationModel
+from api.automations.scheduler import parse_time_trigger
 from api.auth.endpoints import get_current_user
+from api.notifications.ws_manager import notify_automation_changed
+from database.enums import AutomationTriggerType
 
 router = APIRouter(prefix="/automations")
 
@@ -40,14 +43,22 @@ class AutomationEndpoints:
 
         self._verify_device_ownership(device, current_user)
 
-        self.db.add(Automation(
+        automation = Automation(
             name=data.name,
             trigger_type=data.trigger_type,
             trigger_value=data.trigger_value,
             execution_day=data.execution_day,
             device=device,
-        ))
+        )
+        self.db.add(automation)
         self.db.commit()
+
+        notify_automation_changed(
+            str(current_user.id),
+            action="created",
+            automation_id=str(automation.id),
+            automation_name=automation.name,
+        )
 
         return JSONResponse(
             content={"message": f"Automation '{data.name}' created successfully"},
@@ -128,7 +139,20 @@ class AutomationEndpoints:
         if data.execution_day is not None:
             automation.execution_day = data.execution_day
 
+        if automation.trigger_type == AutomationTriggerType.TIME and parse_time_trigger(automation.trigger_value) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Time automations require trigger_value in HH:MM or HH:MM:SS format"
+            )
+
         self.db.commit()
+
+        notify_automation_changed(
+            str(current_user.id),
+            action="updated",
+            automation_id=str(automation.id),
+            automation_name=automation.name,
+        )
 
         return JSONResponse(
             content={"message": f"Automation '{automation.name}' updated successfully"},
@@ -147,10 +171,18 @@ class AutomationEndpoints:
         device = self.db.query(Device).filter(Device.id == automation.device_id).first()
         self._verify_device_ownership(device, current_user)
 
+        automation_name = automation.name
         self.db.delete(automation)
         self.db.commit()
 
+        notify_automation_changed(
+            str(current_user.id),
+            action="deleted",
+            automation_id=str(automation_id),
+            automation_name=automation_name,
+        )
+
         return JSONResponse(
-            content={"message": f"Automation '{automation.name}' deleted successfully"},
+            content={"message": f"Automation '{automation_name}' deleted successfully"},
             status_code=status.HTTP_200_OK
         )

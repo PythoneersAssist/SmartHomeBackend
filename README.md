@@ -9,6 +9,7 @@ A modular and scalable backend for Smart Home systems built with FastAPI. This p
 - **Authentication**: OAuth2 password flow with JWT Bearer tokens. Supports login via username or email.
 - **User Management**: User registration with email/password validation, profile retrieval, and account updates (username, email, password).
 - **House Management**: Full CRUD for households — create, list, get by ID (with rooms), update name/description. Delete endpoint is defined but not yet implemented.
+- **Real-Time Communication (WebSocket)**: User-scoped websocket stream for live notification events (device status changes and automation events).
 
 ### Planned (Stubbed Out)
 
@@ -72,6 +73,35 @@ A modular and scalable backend for Smart Home systems built with FastAPI. This p
 | House | GET | `/home/get_id/{house_id}` | ✔ | Get house details with rooms by UUID |
 | House | PUT | `/home/update` | ✔ | Update house name or description |
 | House | DELETE | `/home/delete` | — | Delete a house (stub — not implemented) |
+| Notifications | WS | `/notifications/ws?token=<jwt>` | ✔ | Real-time events (device status, energy updates, automation triggers) |
+
+## Real-Time Events
+
+Connect from the frontend using a valid JWT token as a query parameter:
+
+```text
+ws://127.0.0.1:8000/notifications/ws?token=<access_token>
+```
+
+Events currently emitted:
+
+- `connected`
+- `deviceStatusChanged`
+- `automationTriggered`
+- `automationChanged`
+
+Example payload:
+
+```json
+{
+   "event": "deviceStatusChanged",
+   "deviceId": "D1",
+   "status": "on",
+   "timestamp": "2025-10-15T14:42:00Z"
+}
+```
+
+Frontend fallback recommendation: if websocket connectivity fails, poll energy/device endpoints on a fixed interval.
 
 ### Defined but Not Wired
 
