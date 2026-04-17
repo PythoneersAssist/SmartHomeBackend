@@ -41,7 +41,7 @@ def parse_time_trigger(value: str | None) -> dt_time | None:
     if not value:
         return None
 
-    raw = value.strip()
+    raw = value.strip().replace('.', ':')
     for fmt in ("%H:%M:%S", "%H:%M"):
         try:
             return datetime.strptime(raw, fmt).time()

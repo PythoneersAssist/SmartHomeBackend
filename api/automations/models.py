@@ -5,8 +5,12 @@ from database.enums import AutomationTriggerType
 from uuid import UUID
 
 
+def _normalize_time_value(value: str) -> str:
+    return value.strip().replace(".", ":")
+
+
 def _is_valid_time_value(value: str) -> bool:
-    normalized = value.strip()
+    normalized = _normalize_time_value(value)
     for fmt in ("%H:%M:%S", "%H:%M"):
         try:
             datetime.strptime(normalized, fmt)
@@ -30,6 +34,7 @@ class CreateAutomationModel(BaseModel):
         if self.trigger_type == AutomationTriggerType.TIME:
             if self.trigger_value is None or not _is_valid_time_value(self.trigger_value):
                 raise ValueError("Time automations require trigger_value in HH:MM or HH:MM:SS format")
+            self.trigger_value = _normalize_time_value(self.trigger_value)
 
         return self
 
@@ -48,5 +53,6 @@ class UpdateAutomationModel(BaseModel):
         if self.trigger_type == AutomationTriggerType.TIME and self.trigger_value is not None:
             if not _is_valid_time_value(self.trigger_value):
                 raise ValueError("Time automations require trigger_value in HH:MM or HH:MM:SS format")
+            self.trigger_value = _normalize_time_value(self.trigger_value)
 
         return self

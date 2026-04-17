@@ -10,4 +10,5 @@ class CreateDeviceModel(BaseModel):
 class UpdateDeviceModel(BaseModel):
     device_id: UUID
     name: str | None = None
+    room_id: UUID | None = None
     parameters: dict | None = None

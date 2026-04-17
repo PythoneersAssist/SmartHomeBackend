@@ -6,13 +6,12 @@ from typing import Annotated
 from uuid import UUID
 
 from database.database import get_db
-from database.models import User, House, Room, Device
+from database.models import User, House, Room, Device, Automation
 from database.enums import DeviceType, AutomationTriggerType
 from api.devices.models import CreateDeviceModel, UpdateDeviceModel
 from api.automations.logic import execute_automation_device_action, should_emit_threshold_automation_trigger
 from api.auth.endpoints import get_current_user
 from api.notifications.ws_manager import notify_automation_triggered, notify_device_status_changed
-from database.models import Automation
 from utils import device_parameters
 
 router = APIRouter(prefix="/devices")
@@ -153,10 +152,30 @@ class DeviceEndpoints:
 
         previous_parameters = dict(device.parameters or {})
 
-        if data.name:
+        target_room_id = device.room_id
+
+        if data.room_id is not None and data.room_id != device.room_id:
+            target_room = self.db.query(Room).filter(Room.id == data.room_id).first()
+            if not target_room:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Room not found"
+                )
+
+            house = self.db.query(House).filter(House.id == target_room.house_id, House.user_id == current_user.id).first()
+            if not house:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You do not have access to this room"
+                )
+
+            target_room_id = data.room_id
+
+        if data.name or target_room_id != device.room_id:
+            requested_name = data.name if data.name else device.name
             existing = self.db.query(Device).filter(
-                Device.room_id == device.room_id,
-                Device.name == data.name,
+                Device.room_id == target_room_id,
+                Device.name == requested_name,
                 Device.id != device.id
             ).first()
             if existing:
@@ -164,7 +183,12 @@ class DeviceEndpoints:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="A device with that name already exists in this room"
                 )
+
+        if data.name:
             device.name = data.name
+
+        if target_room_id != device.room_id:
+            device.room_id = target_room_id
 
         if data.parameters is not None:
             device.parameters = data.parameters
