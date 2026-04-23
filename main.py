@@ -16,6 +16,7 @@ import api.automations.endpoints as auto_e
 import api.energy.endpoints as energy_e
 import api.notifications.endpoints as notif_e
 from api.automations.scheduler import is_scheduler_enabled, scheduler
+from api.energy.scheduler import is_energy_history_scheduler_enabled, energy_history_scheduler
 
 from database.database import engine, Base, ensure_schema_upgrades
 
@@ -45,11 +46,14 @@ async def startup_db_upgrade() -> None:
     ensure_schema_upgrades()
     if is_scheduler_enabled():
         await scheduler.start()
+    if is_energy_history_scheduler_enabled():
+        await energy_history_scheduler.start()
 
 
 @app.on_event("shutdown")
 async def shutdown_background_services() -> None:
     await scheduler.stop()
+    await energy_history_scheduler.stop()
 
 @app.get("/")
 async def root() -> str:

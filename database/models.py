@@ -28,6 +28,7 @@ class House(Base):
 
     user = relationship("User", back_populates="households")
     rooms = relationship("Room", back_populates="house", cascade="all, delete-orphan")
+    energy_history = relationship("EnergyHistory", back_populates="house", cascade="all, delete-orphan")
 
 class Room(Base):
     __tablename__ = "rooms"
@@ -41,6 +42,7 @@ class Room(Base):
 
     house = relationship("House", back_populates="rooms")
     devices = relationship("Device", back_populates="room", cascade="all, delete-orphan")
+    energy_history = relationship("RoomEnergyHistory", cascade="all, delete-orphan")
 
 class Device(Base):
     __tablename__ = "devices"
@@ -53,6 +55,7 @@ class Device(Base):
     room_id = Column(UUID, ForeignKey("rooms.id"), nullable = False)
     room = relationship("Room", back_populates="devices")
     automation = relationship("Automation", back_populates="device", cascade="all, delete-orphan")
+    energy_history = relationship("DeviceEnergyHistory", cascade="all, delete-orphan")
 
 class Automation(Base):
     __tablename__ = "automations"
@@ -91,6 +94,53 @@ class AutomationSchedulerState(Base):
 
     id = Column(Integer, primary_key = True, nullable = False)
     last_checked_at = Column(String, nullable = False)
+
+
+class EnergyHistory(Base):
+    __tablename__ = "energy_history"
+    __table_args__ = (
+        UniqueConstraint("house_id", "hour_slot", name="uq_energy_history_house_hour"),
+    )
+
+    id = Column(UUID, default = uuid4, primary_key = True, index = True, nullable = False)
+    hour_slot = Column(String, nullable = False)
+    total_estimated_watts = Column(Float, nullable = False)
+    active_devices = Column(Integer, default = 0, nullable = False)
+    total_devices = Column(Integer, default = 0, nullable = False)
+
+    house_id = Column(UUID, ForeignKey("houses.id"), nullable = False)
+    house = relationship("House", back_populates="energy_history")
+
+class RoomEnergyHistory(Base):
+    __tablename__ = "room_energy_history"
+    __table_args__ = (
+        UniqueConstraint("room_id", "hour_slot", name="uq_room_energy_history_room_hour"),
+    )
+
+    id = Column(UUID, default=uuid4, primary_key=True, index=True, nullable=False)
+    hour_slot = Column(String, nullable=False)
+    total_estimated_watts = Column(Float, nullable=False)
+    active_devices = Column(Integer, default=0, nullable=False)
+    total_devices = Column(Integer, default=0, nullable=False)
+
+    room_id = Column(UUID, ForeignKey("rooms.id"), nullable=False)
+    room = relationship("Room", back_populates="energy_history")
+
+
+class DeviceEnergyHistory(Base):
+    __tablename__ = "device_energy_history"
+    __table_args__ = (
+        UniqueConstraint("device_id", "hour_slot", name="uq_device_energy_history_device_hour"),
+    )
+
+    id = Column(UUID, default=uuid4, primary_key=True, index=True, nullable=False)
+    hour_slot = Column(String, nullable=False)
+    estimated_watts = Column(Float, nullable=False)
+    is_on = Column(Boolean, default=False, nullable=False)
+
+    device_id = Column(UUID, ForeignKey("devices.id"), nullable=False)
+    device = relationship("Device", back_populates="energy_history")
+
 
 class Notification(Base):
     __tablename__ = "notifications"

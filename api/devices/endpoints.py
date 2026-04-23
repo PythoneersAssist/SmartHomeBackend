@@ -200,7 +200,7 @@ class DeviceEndpoints:
         new_status = bool(updated_parameters.get("status", False))
 
         if old_status != new_status:
-            notify_device_status_changed(str(current_user.id), str(device.id), new_status)
+            notify_device_status_changed(str(current_user.id), str(device.id), new_status, db=self.db)
 
         if data.parameters is not None:
             automations = (
@@ -228,11 +228,12 @@ class DeviceEndpoints:
                         trigger_type=automation.trigger_type.value if automation.trigger_type is not None else None,
                         trigger_value=automation.trigger_value,
                         reason="deviceParameterThreshold",
+                        db=self.db,
                     )
 
             if executed_status_change:
                 self.db.commit()
-                notify_device_status_changed(str(current_user.id), str(device.id), True)
+                notify_device_status_changed(str(current_user.id), str(device.id), True, db=self.db)
 
         return JSONResponse(
             content={"message": f"Device '{device.name}' updated successfully"},

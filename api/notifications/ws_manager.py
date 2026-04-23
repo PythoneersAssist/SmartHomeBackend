@@ -3,8 +3,12 @@ import logging
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
+from uuid import UUID
 
 from fastapi import WebSocket
+from sqlalchemy.orm import Session, sessionmaker
+
+from database.models import Notification
 
 
 logger = logging.getLogger(__name__)
@@ -12,6 +16,37 @@ logger = logging.getLogger(__name__)
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _persist_notification(user_id: str, title: str, message: str, db: Session | None) -> str | None:
+    if db is None:
+        return None
+
+    try:
+        parsed_user_id = UUID(user_id)
+    except (TypeError, ValueError):
+        return None
+
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db.get_bind())
+    notification_db = session_factory()
+    try:
+        notification = Notification(
+            title=title,
+            message=message,
+            is_read=False,
+            created_at=utc_now_iso(),
+            user_id=parsed_user_id,
+        )
+        notification_db.add(notification)
+        notification_db.commit()
+        notification_db.refresh(notification)
+        return str(notification.id)
+    except Exception as exc:
+        notification_db.rollback()
+        logger.debug("Failed to persist notification: %s", exc)
+        return None
+    finally:
+        notification_db.close()
 
 
 class NotificationWebSocketManager:
@@ -82,13 +117,19 @@ def notify_user(user_id: str, payload: dict[str, Any]) -> None:
     manager.notify_user(user_id, payload)
 
 
-def notify_device_status_changed(user_id: str, device_id: str, is_on: bool) -> None:
+def notify_device_status_changed(user_id: str, device_id: str, is_on: bool, db: Session | None = None) -> None:
+    status_label = "on" if is_on else "off"
+    title = "Device turned on" if is_on else "Device turned off"
+    message = f"Device {device_id} is now {status_label.upper()}."
+    notification_id = _persist_notification(user_id, title, message, db=db)
+
     notify_user(
         user_id,
         {
             "event": "deviceStatusChanged",
+            "notificationId": notification_id,
             "deviceId": device_id,
-            "status": "on" if is_on else "off",
+            "status": status_label,
             "timestamp": utc_now_iso(),
         },
     )
@@ -102,11 +143,21 @@ def notify_automation_triggered(
     trigger_type: Any,
     trigger_value: Any,
     reason: str,
+    db: Session | None = None,
 ) -> None:
+    trigger_text = ""
+    if trigger_value is not None:
+        trigger_text = f" (trigger: {trigger_value})"
+
+    title = "Automation triggered"
+    message = f"{automation_name} executed for device {device_id}{trigger_text}."
+    notification_id = _persist_notification(user_id, title, message, db=db)
+
     notify_user(
         user_id,
         {
             "event": "automationTriggered",
+            "notificationId": notification_id,
             "automationId": automation_id,
             "automationName": automation_name,
             "deviceId": device_id,
@@ -118,11 +169,22 @@ def notify_automation_triggered(
     )
 
 
-def notify_automation_changed(user_id: str, action: str, automation_id: str, automation_name: str) -> None:
+def notify_automation_changed(
+    user_id: str,
+    action: str,
+    automation_id: str,
+    automation_name: str,
+    db: Session | None = None,
+) -> None:
+    title = f"Automation {action}"
+    message = f"{automation_name} was {action}."
+    notification_id = _persist_notification(user_id, title, message, db=db)
+
     notify_user(
         user_id,
         {
             "event": "automationChanged",
+            "notificationId": notification_id,
             "action": action,
             "automationId": automation_id,
             "automationName": automation_name,

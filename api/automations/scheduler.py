@@ -146,10 +146,11 @@ def _try_execute_due_automation(db: Session, automation: Automation, scheduled_f
             trigger_type=automation.trigger_type.value if automation.trigger_type is not None else None,
             trigger_value=automation.trigger_value,
             reason="scheduledTime",
+            db=db,
         )
 
         if changed:
-            notify_device_status_changed(user_id, device_id, True)
+            notify_device_status_changed(user_id, device_id, True, db=db)
 
         return True
     except Exception as exc:

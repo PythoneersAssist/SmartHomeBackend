@@ -58,6 +58,7 @@ class AutomationEndpoints:
             action="created",
             automation_id=str(automation.id),
             automation_name=automation.name,
+            db=self.db,
         )
 
         return JSONResponse(
@@ -152,6 +153,7 @@ class AutomationEndpoints:
             action="updated",
             automation_id=str(automation.id),
             automation_name=automation.name,
+            db=self.db,
         )
 
         return JSONResponse(
@@ -180,6 +182,7 @@ class AutomationEndpoints:
             action="deleted",
             automation_id=str(automation_id),
             automation_name=automation_name,
+            db=self.db,
         )
 
         return JSONResponse(

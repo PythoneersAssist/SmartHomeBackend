@@ -128,11 +128,11 @@ class UserEndpoints:
         
         data = {}
         for house in current_user.households:
-            data.append({house.name : {}})
+            house_rooms = data.setdefault(house.name, {})
             for room in house.rooms:
-                data[house.name] = {room.name : {}}
+                room_devices = []
                 for device in room.devices:
-                    data[house.name][room.name].append({
+                    room_devices.append({
                         "id": str(device.id),
                         "name": device.name,
                         "type": device.type.value if hasattr(device.type, "value") else str(device.type),
@@ -142,6 +142,7 @@ class UserEndpoints:
                         "house_name": house.name,
                         "parameters": device.parameters
                     })
+                house_rooms[room.name] = room_devices
         
         return JSONResponse(
             content = data,
