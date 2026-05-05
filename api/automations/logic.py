@@ -22,11 +22,22 @@ def should_emit_threshold_automation_trigger(automation: Automation, parameters:
     return False
 
 
-def execute_automation_device_action(device: Device) -> bool:
-    current_parameters = dict(device.parameters or {})
-    if bool(current_parameters.get("status", False)):
+def execute_automation_device_action(
+    device: Device,
+    turn_on: bool = True,
+    parameter_updates: dict[str, Any] | None = None,
+) -> bool:
+    original_parameters = dict(device.parameters or {})
+    current_parameters = dict(original_parameters)
+
+    if parameter_updates:
+        current_parameters.update(parameter_updates)
+
+    desired_status = bool(turn_on)
+    current_parameters["status"] = desired_status
+
+    if current_parameters == original_parameters:
         return False
 
-    current_parameters["status"] = True
     device.parameters = current_parameters
     return True

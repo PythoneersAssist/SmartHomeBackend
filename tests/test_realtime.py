@@ -89,6 +89,7 @@ def test_realtime_automation_trigger_event_on_parameter_threshold(client, db_ses
             "trigger_type": AutomationTriggerType.TEMPERATURE.value,
             "trigger_value": "24",
             "execution_day": None,
+            "turn_on": True,
             "device_id": device_id,
         },
         headers=auth_header(token),
@@ -116,8 +117,8 @@ def test_threshold_automation_executes_device_action(client, db_session):
     token, _, _, device_id = setup_device(
         client,
         db_session,
-        device_name="Auto Thermostat",
-        device_type=DeviceType.THERMOSTAT.value,
+        device_name="Auto Oven",
+        device_type=DeviceType.OVEN.value,
     )
 
     automation_response = client.post(
@@ -127,6 +128,8 @@ def test_threshold_automation_executes_device_action(client, db_session):
             "trigger_type": AutomationTriggerType.TEMPERATURE.value,
             "trigger_value": "24",
             "execution_day": None,
+            "turn_on": True,
+            "parameters": {"power_setting": 80},
             "device_id": device_id,
         },
         headers=auth_header(token),
@@ -144,4 +147,4 @@ def test_threshold_automation_executes_device_action(client, db_session):
     assert device_response.status_code == 200
     parameters = device_response.json()["parameters"]
     assert parameters["status"] is True
-    assert parameters["temperature"] == 26
+    assert parameters["power_setting"] == 80

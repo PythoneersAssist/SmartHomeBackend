@@ -65,6 +65,8 @@ class Automation(Base):
 
     trigger_type = Column(Enum(AutomationTriggerType), default = AutomationTriggerType.UNKNOWN, nullable = False)
     trigger_value = Column(String, nullable = True)
+    turn_on = Column(Boolean, default = False, nullable = False)
+    parameters = Column(JSON, nullable = True)
 
     execution_day = Column(Integer, default=None)
     

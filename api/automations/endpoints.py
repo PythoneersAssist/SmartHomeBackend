@@ -48,6 +48,8 @@ class AutomationEndpoints:
             trigger_type=data.trigger_type,
             trigger_value=data.trigger_value,
             execution_day=data.execution_day,
+            turn_on=data.turn_on,
+            parameters=data.parameters,
             device=device,
         )
         self.db.add(automation)
@@ -85,6 +87,8 @@ class AutomationEndpoints:
                 "trigger_type": auto.trigger_type.value if auto.trigger_type is not None else None,
                 "trigger_value": auto.trigger_value,
                 "execution_day": auto.execution_day,
+                "turn_on": auto.turn_on,
+                "parameters": auto.parameters,
                 "device_id": str(auto.device_id),
             })
 
@@ -111,6 +115,8 @@ class AutomationEndpoints:
             "trigger_type": automation.trigger_type.value if automation.trigger_type is not None else None,
             "trigger_value": automation.trigger_value,
             "execution_day": automation.execution_day,
+            "turn_on": automation.turn_on,
+            "parameters": automation.parameters,
             "device_id": str(automation.device_id),
         }
 
@@ -139,6 +145,10 @@ class AutomationEndpoints:
             automation.trigger_value = data.trigger_value
         if data.execution_day is not None:
             automation.execution_day = data.execution_day
+        if data.turn_on is not None:
+            automation.turn_on = data.turn_on
+        if data.parameters is not None:
+            automation.parameters = data.parameters
 
         if automation.trigger_type == AutomationTriggerType.TIME and parse_time_trigger(automation.trigger_value) is None:
             raise HTTPException(

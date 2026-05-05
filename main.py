@@ -15,6 +15,7 @@ import api.devices.endpoints as de
 import api.automations.endpoints as auto_e
 import api.energy.endpoints as energy_e
 import api.notifications.endpoints as notif_e
+import api.gemini.endpoints as gemini_e
 from api.automations.scheduler import is_scheduler_enabled, scheduler
 from api.energy.scheduler import is_energy_history_scheduler_enabled, energy_history_scheduler
 
@@ -38,6 +39,7 @@ app.include_router(de.router)
 app.include_router(auto_e.router)
 app.include_router(energy_e.router)
 app.include_router(notif_e.router)
+app.include_router(gemini_e.router)
 
 
 @app.on_event("startup")

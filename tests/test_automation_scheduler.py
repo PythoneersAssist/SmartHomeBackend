@@ -32,10 +32,10 @@ def create_room_in_db(db_session, house_id, name="Scheduler Room", floor=FloorTy
     return str(room.id)
 
 
-def create_device(client, token, room_id, name="Scheduler Device"):
+def create_device(client, token, room_id, name="Scheduler Device", device_type=DeviceType.THERMOSTAT.value):
     response = client.post(
         "/devices/create",
-        json={"name": name, "device_type": DeviceType.THERMOSTAT.value, "room_id": room_id},
+        json={"name": name, "device_type": device_type, "room_id": room_id},
         headers=auth_header(token),
     )
     assert response.status_code == 200
@@ -48,16 +48,21 @@ def create_device(client, token, room_id, name="Scheduler Device"):
     raise AssertionError("Device was not created")
 
 
-def create_time_automation(client, token, device_id, name, trigger_value, execution_day):
+def create_time_automation(client, token, device_id, name, trigger_value, execution_day, turn_on=True, parameters=None):
+    payload = {
+        "name": name,
+        "trigger_type": AutomationTriggerType.TIME.value,
+        "trigger_value": trigger_value,
+        "execution_day": execution_day,
+        "turn_on": turn_on,
+        "device_id": device_id,
+    }
+    if parameters is not None:
+        payload["parameters"] = parameters
+
     response = client.post(
         "/automations/create",
-        json={
-            "name": name,
-            "trigger_type": AutomationTriggerType.TIME.value,
-            "trigger_value": trigger_value,
-            "execution_day": execution_day,
-            "device_id": device_id,
-        },
+        json=payload,
         headers=auth_header(token),
     )
     assert response.status_code == 200
@@ -99,6 +104,77 @@ def test_time_scheduler_executes_due_automation(client, db_session):
     assert len(logs) == 1
     assert logs[0].scheduled_for == to_utc_iso(due_time)
     assert logs[0].status == "executed"
+
+
+def test_time_scheduler_can_turn_device_off(client, db_session):
+    _, token = create_user_and_login(client)
+    house_id = create_house(client, token)
+    room_id = create_room_in_db(db_session, house_id)
+    device_id = create_device(client, token, room_id, name="Off Automation Device")
+
+    status_update = client.put(
+        "/devices/update",
+        json={"device_id": device_id, "parameters": {"status": True}},
+        headers=auth_header(token),
+    )
+    assert status_update.status_code == 200
+
+    due_time = datetime(2026, 4, 13, 12, 45, 0, tzinfo=UTC)
+    create_time_automation(
+        client,
+        token,
+        device_id,
+        name="Turn Off At Noon",
+        trigger_value=due_time.strftime("%H:%M:%S"),
+        execution_day=due_time.weekday(),
+        turn_on=False,
+    )
+
+    executed = run_time_automation_scheduler_cycle(
+        due_time - timedelta(minutes=1),
+        due_time + timedelta(minutes=1),
+        db=db_session,
+    )
+
+    assert executed == 1
+    parameters = get_device_parameters(client, token, device_id)
+    assert parameters["status"] is False
+
+
+def test_time_scheduler_can_update_device_parameters(client, db_session):
+    _, token = create_user_and_login(client)
+    house_id = create_house(client, token)
+    room_id = create_room_in_db(db_session, house_id)
+    device_id = create_device(
+        client,
+        token,
+        room_id,
+        name="Oven Automation Device",
+        device_type=DeviceType.OVEN.value,
+    )
+
+    due_time = datetime(2026, 4, 16, 7, 15, 0, tzinfo=UTC)
+    create_time_automation(
+        client,
+        token,
+        device_id,
+        name="Set Oven Power",
+        trigger_value=due_time.strftime("%H:%M:%S"),
+        execution_day=due_time.weekday(),
+        turn_on=True,
+        parameters={"power_setting": 75},
+    )
+
+    executed = run_time_automation_scheduler_cycle(
+        due_time - timedelta(minutes=1),
+        due_time + timedelta(minutes=1),
+        db=db_session,
+    )
+
+    assert executed == 1
+    parameters = get_device_parameters(client, token, device_id)
+    assert parameters["status"] is True
+    assert parameters["power_setting"] == 75
 
 
 def test_time_scheduler_cycle_is_idempotent(client, db_session):

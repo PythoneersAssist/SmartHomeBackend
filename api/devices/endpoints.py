@@ -214,11 +214,12 @@ class DeviceEndpoints:
                 .all()
             )
 
-            executed_status_change = False
+            executed_device_change = False
+            initial_status = bool((device.parameters or {}).get("status", False))
             for automation in automations:
                 if should_emit_threshold_automation_trigger(automation, updated_parameters):
-                    if execute_automation_device_action(device):
-                        executed_status_change = True
+                    if execute_automation_device_action(device, automation.turn_on, automation.parameters):
+                        executed_device_change = True
 
                     notify_automation_triggered(
                         user_id=str(current_user.id),
@@ -231,9 +232,11 @@ class DeviceEndpoints:
                         db=self.db,
                     )
 
-            if executed_status_change:
+            if executed_device_change:
                 self.db.commit()
-                notify_device_status_changed(str(current_user.id), str(device.id), True, db=self.db)
+                final_status = bool((device.parameters or {}).get("status", False))
+                if final_status != initial_status:
+                    notify_device_status_changed(str(current_user.id), str(device.id), final_status, db=self.db)
 
         return JSONResponse(
             content={"message": f"Device '{device.name}' updated successfully"},

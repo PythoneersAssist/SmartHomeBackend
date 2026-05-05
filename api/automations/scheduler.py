@@ -134,8 +134,9 @@ def _try_execute_due_automation(db: Session, automation: Automation, scheduled_f
 
         user_id = str(automation.device.room.house.user_id)
         device_id = str(automation.device.id)
+        initial_status = bool((automation.device.parameters or {}).get("status", False))
 
-        changed = execute_automation_device_action(automation.device)
+        execute_automation_device_action(automation.device, automation.turn_on, automation.parameters)
         db.commit()
 
         notify_automation_triggered(
@@ -149,8 +150,9 @@ def _try_execute_due_automation(db: Session, automation: Automation, scheduled_f
             db=db,
         )
 
-        if changed:
-            notify_device_status_changed(user_id, device_id, True, db=db)
+        final_status = bool((automation.device.parameters or {}).get("status", False))
+        if final_status != initial_status:
+            notify_device_status_changed(user_id, device_id, final_status, db=db)
 
         return True
     except Exception as exc:

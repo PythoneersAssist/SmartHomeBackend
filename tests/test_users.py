@@ -237,3 +237,17 @@ class TestUpdateUser:
             headers=auth_header(token),
         )
         assert resp.status_code == 200
+
+    def test_update_no_id_required(self, client):
+        """The authenticated user can update profile fields without sending an id."""
+        _, token = create_user_and_login(client)
+
+        resp = client.patch(
+            "/user/update/",
+            json={"username": "newname"},
+            headers=auth_header(token),
+        )
+        assert resp.status_code == 200
+
+        resp = client.get("/user/get", headers=auth_header(token))
+        assert resp.json()["username"] == "newname"

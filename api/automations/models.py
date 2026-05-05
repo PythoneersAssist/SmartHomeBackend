@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, model_validator
 from database.enums import AutomationTriggerType
@@ -24,6 +25,8 @@ class CreateAutomationModel(BaseModel):
     trigger_type: AutomationTriggerType
     trigger_value: str | None = None
     execution_day: int | None = None
+    turn_on: bool = True
+    parameters: dict[str, Any] | None = None
     device_id: UUID
 
     @model_validator(mode="after")
@@ -44,6 +47,8 @@ class UpdateAutomationModel(BaseModel):
     trigger_type: AutomationTriggerType | None = None
     trigger_value: str | None = None
     execution_day: int | None = None
+    turn_on: bool | None = None
+    parameters: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_fields(self):
