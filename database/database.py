@@ -1,10 +1,24 @@
+from os import getenv
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./database.db"
+# DATABASE_URL is provided by the hosting platform (e.g. Azure App Settings).
+# Falls back to a local SQLite file for development.
+SQLALCHEMY_DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./database.db")
+
+# Normalise legacy / driver-less Postgres URLs to the psycopg (v3) driver.
+if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+elif SQLALCHEMY_DATABASE_URL.startswith("postgresql://"):
+    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
+is_sqlite = SQLALCHEMY_DATABASE_URL.startswith("sqlite")
 
 engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args = {"check_same_thread": False}
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False} if is_sqlite else {},
+    pool_pre_ping=not is_sqlite,
 )
 
 SessionLocal = sessionmaker(autocommit = False, autoflush = False, bind = engine)

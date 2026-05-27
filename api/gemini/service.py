@@ -38,6 +38,7 @@ except Exception:
 from api.gemini.models import ChatMessage
 from api.gemini.tools import get_groq_tools
 from api.gemini.time_parser import parse_automation_schedule
+from api.gemini.rag import RAGContext
 from database.models import (
     User, House, Room, Device, Automation, AutomationExecution,
     EnergyHistory, RoomEnergyHistory, DeviceEnergyHistory
@@ -101,31 +102,41 @@ class GeminiService:
             self.model = None
         
     def _get_system_prompt(self, user_id: UUID, db: Session) -> str:
-        """Generate system prompt with user context."""
+        """Generate system prompt with user context and RAG information."""
         user = db.query(User).filter(User.id == user_id).first()
-        houses = db.query(House).filter(House.user_id == user_id).all()
         
-        house_info = "\n".join([
-            f"- {h.name} (ID: {h.id})"
-            for h in houses
-        ])
+        # Get RAG context for device inventory and energy patterns
+        user_context = RAGContext.get_user_context(user_id, db)
+        energy_context = RAGContext.get_energy_context(user_id, db)
         
-        return f"""You are a helpful AI assistant for a smart home system. 
+        # Device documentation reference
+        device_docs = "\n\nAvailable Device Types and Their Capabilities:"
+        for device_type, doc in RAGContext.DEVICE_DOCUMENTATION.items():
+            device_docs += f"\n- {device_type}: {doc['description']}"
+            device_docs += f"\n  Parameters: {', '.join(doc['parameters'].keys())}"
         
-The user {user.username} has the following houses:
-{house_info}
+        return f"""You are a helpful AI assistant for a smart home system.
+
+User Profile: {user.username if user else 'Unknown'}
+
+{user_context}
+
+{energy_context}
+
+{device_docs}
 
 You have access to tools to control devices, create automations, and manage the smart home.
 
 When the user asks you to do something:
-1. Use the available tools to help them
-2. For device operations, you may need to call find_device_by_name first to locate devices by name
-3. When creating time-based automations, always convert natural language times to HH:MM format (e.g., "at noon" -> "12:00")
-4. Auto-execute all function calls without asking for confirmation
-5. Be concise and direct in your responses
-6. Call ONE function at a time, wait for its result, then decide the next step
-7. Always use proper boolean values (true/false), never strings
-8. Do not modify the name of the parameters, keep all the parameters from the default value even though it is not requested to be modified.
+1. Use the device information above to understand what's available
+2. Use the available tools to help them
+3. For device operations, you may need to call find_device_by_name first to locate devices by name
+4. When creating time-based automations, always convert natural language times to HH:MM format (e.g., "at noon" -> "12:00")
+5. Auto-execute all function calls without asking for confirmation
+6. Be concise and direct in your responses
+7. Call ONE function at a time, wait for its result, then decide the next step
+8. Always use proper boolean values (true/false), never strings
+9. Do not modify the name of the parameters, keep all the parameters from the default value even though it is not requested to be modified.
 
 Current date/time context: Use this when interpreting user requests about timing."""
     

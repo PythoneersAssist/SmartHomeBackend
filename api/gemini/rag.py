@@ -283,8 +283,9 @@ class RAGContext:
                 if devices:
                     context += f"  {room.name}:\\n"
                     for device in devices:
-                        status = "ON" if device.status else "OFF"
-                        context += f"    - {device.name} ({device.device_type}): {status}\\n"
+                        device_status = "ON" if (device.parameters or {}).get("status", False) else "OFF"
+                        device_type = device.type.name if device.type else "UNKNOWN"
+                        context += f"    - {device.name} ({device_type}): {device_status}\\n"
         
         return context
     
