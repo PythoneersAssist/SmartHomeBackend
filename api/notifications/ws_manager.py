@@ -117,6 +117,24 @@ def notify_user(user_id: str, payload: dict[str, Any]) -> None:
     manager.notify_user(user_id, payload)
 
 
+def notify_device_parameters_changed(user_id: str, device_id: str, parameters: dict[str, Any]) -> None:
+    """Push a live device parameter update without persisting a notification.
+
+    Used for high-frequency, ambient changes (e.g. the temperature simulation)
+    where a stored notification per tick would flood the notification center.
+    Listeners get the full updated parameters so the UI can refresh in place.
+    """
+    notify_user(
+        user_id,
+        {
+            "event": "deviceParametersChanged",
+            "deviceId": device_id,
+            "parameters": parameters,
+            "timestamp": utc_now_iso(),
+        },
+    )
+
+
 def notify_device_status_changed(user_id: str, device_id: str, is_on: bool, db: Session | None = None) -> None:
     status_label = "on" if is_on else "off"
     title = "Device turned on" if is_on else "Device turned off"

@@ -1,7 +1,39 @@
 from typing import Any
+from uuid import UUID
 
-from database.enums import AutomationTriggerType
-from database.models import Automation, Device
+from sqlalchemy.orm import Session
+
+from database.enums import AutomationTriggerType, DeviceType
+from database.models import Automation, Device, Room
+
+
+# Device types that can act as the ambient sensor for each threshold trigger.
+# A threshold automation should only fire when the house actually contains a
+# device capable of producing the relevant reading.
+TRIGGER_SENSOR_DEVICE_TYPES: dict[AutomationTriggerType, tuple[DeviceType, ...]] = {
+    AutomationTriggerType.TEMPERATURE: (DeviceType.THERMOSTAT,),
+    AutomationTriggerType.LUX: (DeviceType.LIGHT, DeviceType.LED_STRIP),
+}
+
+
+def house_supports_trigger(db: Session, house_id: UUID, trigger_type: AutomationTriggerType) -> bool:
+    """Return True if the house has a device that can drive the given trigger.
+
+    Temperature automations require a thermostat in the house; light (lux)
+    automations require at least one light or LED strip. Non-threshold triggers
+    (e.g. TIME) are always supported.
+    """
+    required_types = TRIGGER_SENSOR_DEVICE_TYPES.get(trigger_type)
+    if not required_types:
+        return True
+
+    exists = (
+        db.query(Device.id)
+        .join(Room, Device.room_id == Room.id)
+        .filter(Room.house_id == house_id, Device.type.in_(required_types))
+        .first()
+    )
+    return exists is not None
 
 
 def _is_threshold_met(current_value: Any, trigger_value: Any) -> bool:

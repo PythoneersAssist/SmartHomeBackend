@@ -1,7 +1,11 @@
 from datetime import datetime
+from os import getenv
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi_utils.cbv import cbv
+from jose import JWTError
 from sqlalchemy.orm import Session
 from typing import Annotated
 
@@ -9,12 +13,22 @@ from database.database import get_db
 from database.models import User
 
 from api.auth.endpoints import get_current_user
-from api.users.models import CreateUserModel, UpdateUserModel
+from api.users.models import CreateUserModel, UpdateUserModel, ConfirmDeletionModel
 from utils.validation import validate_email, validate_password
-from utils.security import get_password_hash
+from utils.security import get_password_hash, create_purposed_token, verify_purposed_token
+from utils.email import send_email
 
 
 router = APIRouter(prefix="/user")
+
+ACCOUNT_DELETION_PURPOSE = "account_deletion"
+
+
+def _account_deletion_expire_minutes() -> int:
+    try:
+        return int(getenv("ACCOUNT_DELETION_TOKEN_EXPIRE_MINUTES", "30"))
+    except (TypeError, ValueError):
+        return 30
 
 @cbv(router)
 class UserEndpoints:
@@ -136,8 +150,69 @@ class UserEndpoints:
                         "parameters": device.parameters
                     })
                 house_rooms[room.name] = room_devices
-        
+
         return JSONResponse(
             content = data,
             status_code = status.HTTP_200_OK
+        )
+
+    @router.post("/request-deletion", tags=["user"])
+    def request_account_deletion(self, current_user: Annotated[User, Depends(get_current_user)]):
+        """Email the user a confirmation link to permanently delete their account.
+
+        Deletion only happens after the user follows the emailed link and calls
+        /user/confirm-deletion, so an account is never removed on request alone.
+        """
+        token = create_purposed_token(
+            subject=str(current_user.id),
+            purpose=ACCOUNT_DELETION_PURPOSE,
+            expires_minutes=_account_deletion_expire_minutes(),
+        )
+
+        confirm_base = getenv("FRONTEND_DELETE_URL", "http://localhost:5173/confirm-deletion")
+        separator = "&" if "?" in confirm_base else "?"
+        confirm_link = f"{confirm_base}{separator}token={token}"
+
+        send_email(
+            to=current_user.email,
+            subject="Confirm your SmartHome account deletion",
+            html=(
+                f"<p>Hi {current_user.username},</p>"
+                f"<p>We received a request to permanently delete your SmartHome account "
+                f"and all of its houses, rooms and devices. This cannot be undone.</p>"
+                f"<p><a href=\"{confirm_link}\">Confirm account deletion</a></p>"
+                f"<p>If you didn't request this, you can safely ignore this email and "
+                f"your account will remain active.</p>"
+            ),
+        )
+
+        return JSONResponse(
+            content={"message": "A confirmation link has been sent to your email."},
+            status_code=status.HTTP_200_OK,
+        )
+
+    @router.post("/confirm-deletion", tags=["user"])
+    def confirm_account_deletion(self, data: ConfirmDeletionModel):
+        """Permanently delete the account identified by a deletion token."""
+        try:
+            user_id = verify_purposed_token(data.token, ACCOUNT_DELETION_PURPOSE)
+        except JWTError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired deletion token",
+            )
+
+        user = self.db.query(User).filter(User.id == UUID(user_id)).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired deletion token",
+            )
+
+        self.db.delete(user)
+        self.db.commit()
+
+        return JSONResponse(
+            content={"message": "Your account has been permanently deleted."},
+            status_code=status.HTTP_200_OK,
         )

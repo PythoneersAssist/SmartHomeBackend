@@ -114,6 +114,53 @@ def test_realtime_automation_trigger_event_on_parameter_threshold(client, db_ses
 
 
 def test_threshold_automation_executes_device_action(client, db_session):
+    token, house_id, room_id, device_id = setup_device(
+        client,
+        db_session,
+        device_name="Auto Oven",
+        device_type=DeviceType.OVEN.value,
+    )
+
+    # Temperature automations only fire when the house has a thermostat, so add
+    # one to the house before triggering the threshold.
+    thermostat_response = client.post(
+        "/devices/create",
+        json={"name": "Hall Thermostat", "device_type": DeviceType.THERMOSTAT.value, "room_id": room_id},
+        headers=auth_header(token),
+    )
+    assert thermostat_response.status_code == 200
+
+    automation_response = client.post(
+        "/automations/create",
+        json={
+            "name": "Turn On Above Threshold",
+            "trigger_type": AutomationTriggerType.TEMPERATURE.value,
+            "trigger_value": "24",
+            "execution_day": None,
+            "turn_on": True,
+            "parameters": {"power_setting": 80},
+            "device_id": device_id,
+        },
+        headers=auth_header(token),
+    )
+    assert automation_response.status_code == 200
+
+    update_response = client.put(
+        "/devices/update",
+        json={"device_id": device_id, "parameters": {"status": False, "temperature": 26}},
+        headers=auth_header(token),
+    )
+    assert update_response.status_code == 200
+
+    device_response = client.get(f"/devices/get_id/{device_id}", headers=auth_header(token))
+    assert device_response.status_code == 200
+    parameters = device_response.json()["parameters"]
+    assert parameters["status"] is True
+    assert parameters["power_setting"] == 80
+
+
+def test_threshold_automation_skipped_without_sensor(client, db_session):
+    """A temperature automation must not fire in a house with no thermostat."""
     token, _, _, device_id = setup_device(
         client,
         db_session,
@@ -143,8 +190,8 @@ def test_threshold_automation_executes_device_action(client, db_session):
     )
     assert update_response.status_code == 200
 
+    # Without a thermostat in the house the automation should not have run.
     device_response = client.get(f"/devices/get_id/{device_id}", headers=auth_header(token))
-    assert device_response.status_code == 200
     parameters = device_response.json()["parameters"]
-    assert parameters["status"] is True
-    assert parameters["power_setting"] == 80
+    assert parameters["status"] is False
+    assert "power_setting" not in parameters or parameters.get("power_setting") != 80

@@ -9,7 +9,7 @@ from database.database import get_db
 from database.models import User, House, Room, Device, Automation
 from database.enums import DeviceType, AutomationTriggerType
 from api.devices.models import CreateDeviceModel, UpdateDeviceModel
-from api.automations.logic import execute_automation_device_action, should_emit_threshold_automation_trigger
+from api.automations.logic import execute_automation_device_action, should_emit_threshold_automation_trigger, house_supports_trigger
 from api.auth.endpoints import get_current_user
 from api.notifications.ws_manager import notify_automation_triggered, notify_device_status_changed
 from utils import device_parameters
@@ -148,7 +148,7 @@ class DeviceEndpoints:
                 detail="Device not found"
             )
 
-        self._verify_device_ownership(device, current_user)
+        house = self._verify_device_ownership(device, current_user)
 
         previous_parameters = dict(device.parameters or {})
 
@@ -217,6 +217,11 @@ class DeviceEndpoints:
             executed_device_change = False
             initial_status = bool((device.parameters or {}).get("status", False))
             for automation in automations:
+                # Skip threshold automations when the house has no sensor that
+                # can produce the relevant reading (e.g. a temperature trigger
+                # in a house without a thermostat).
+                if not house_supports_trigger(self.db, house.id, automation.trigger_type):
+                    continue
                 if should_emit_threshold_automation_trigger(automation, updated_parameters):
                     if execute_automation_device_action(device, automation.turn_on, automation.parameters):
                         executed_device_change = True

@@ -43,8 +43,8 @@ from database.models import (
     User, House, Room, Device, Automation, AutomationExecution,
     EnergyHistory, RoomEnergyHistory, DeviceEnergyHistory
 )
-from database.enums import AutomationTriggerType, DeviceType
-from api.devices.endpoints import DeviceEndpoints
+from database.enums import AutomationTriggerType, DeviceType, FloorType, RoomType
+from api.devices.endpoints import DeviceEndpoints, get_default_parameters
 from api.automations.endpoints import AutomationEndpoints
 from api.house.endpoints import HouseEndpoints
 from api.energy.endpoints import EnergyEndpoints
@@ -108,20 +108,30 @@ class GeminiService:
         # Get RAG context for device inventory and energy patterns
         user_context = RAGContext.get_user_context(user_id, db)
         energy_context = RAGContext.get_energy_context(user_id, db)
-        
-        # Device documentation reference
+        automations_context = RAGContext.get_automations_context(user_id, db)
+        capabilities_context = RAGContext.get_capabilities_context()
+
+        # Device documentation reference, including the numeric type code used by
+        # the create_device tool and the full parameter spec for each type.
         device_docs = "\n\nAvailable Device Types and Their Capabilities:"
         for device_type, doc in RAGContext.DEVICE_DOCUMENTATION.items():
-            device_docs += f"\n- {device_type}: {doc['description']}"
-            device_docs += f"\n  Parameters: {', '.join(doc['parameters'].keys())}"
-        
+            type_code = RAGContext.DEVICE_TYPE_CODES.get(device_type)
+            code_text = f" (type code {type_code})" if type_code is not None else ""
+            device_docs += f"\n- {device_type}{code_text}: {doc['description']}"
+            params_spec = "; ".join(f"{key}: {value}" for key, value in doc['parameters'].items())
+            device_docs += f"\n  Parameters: {params_spec}"
+
         return f"""You are a helpful AI assistant for a smart home system.
 
 User Profile: {user.username if user else 'Unknown'}
 
 {user_context}
 
+{automations_context}
+
 {energy_context}
+
+{capabilities_context}
 
 {device_docs}
 
@@ -361,7 +371,37 @@ Current date/time context: Use this when interpreting user requests about timing
                 if house_id:
                     house_id = UUID(self._sanitize_uuid(house_id))
                 return self._find_device_by_name(user_id, device_name, house_id, db)
-            
+
+            elif function_name == "create_house":
+                return self._create_house(
+                    user_id, function_args["name"], function_args.get("description"), db
+                )
+
+            elif function_name == "delete_house":
+                house_id = UUID(self._sanitize_uuid(function_args["house_id"]))
+                return self._delete_house(user_id, house_id, db)
+
+            elif function_name == "create_room":
+                house_id = UUID(self._sanitize_uuid(function_args["house_id"]))
+                return self._create_room(
+                    user_id, house_id, function_args["name"],
+                    function_args.get("floor"), function_args.get("room_type"), db
+                )
+
+            elif function_name == "delete_room":
+                room_id = UUID(self._sanitize_uuid(function_args["room_id"]))
+                return self._delete_room(user_id, room_id, db)
+
+            elif function_name == "create_device":
+                room_id = UUID(self._sanitize_uuid(function_args["room_id"]))
+                return self._create_device(
+                    user_id, room_id, function_args["name"], function_args["device_type"], db
+                )
+
+            elif function_name == "delete_device":
+                device_id = UUID(self._sanitize_uuid(function_args["device_id"]))
+                return self._delete_device(user_id, device_id, db)
+
             else:
                 return f"Unknown function: {function_name}"
         
@@ -495,7 +535,141 @@ Current date/time context: Use this when interpreting user requests about timing
         for device in devices:
             result += f"- {device.name} (ID: {device.id})\\n"
         return result
-    
+
+    # ============== House / Room / Device Management ==============
+
+    def _create_house(self, user_id: UUID, name: str, description: Optional[str], db: Session) -> str:
+        """Create a new house for the user."""
+        existing = db.query(House).filter(
+            and_(House.user_id == user_id, House.name == name)
+        ).first()
+        if existing:
+            return f"You already have a house named '{name}'."
+
+        house = House(
+            name=name,
+            description=description or "No description provided",
+            user_id=user_id,
+        )
+        db.add(house)
+        db.commit()
+        return f"Created house '{name}' (ID: {house.id})."
+
+    def _delete_house(self, user_id: UUID, house_id: UUID, db: Session) -> str:
+        """Delete a house owned by the user (cascades to rooms/devices)."""
+        house = db.query(House).filter(
+            and_(House.id == house_id, House.user_id == user_id)
+        ).first()
+        if not house:
+            return "House not found."
+
+        house_name = house.name
+        db.delete(house)
+        db.commit()
+        return f"Deleted house '{house_name}'."
+
+    def _create_room(
+        self,
+        user_id: UUID,
+        house_id: UUID,
+        name: str,
+        floor: Optional[str],
+        room_type: Optional[str],
+        db: Session,
+    ) -> str:
+        """Create a room in a house owned by the user."""
+        house = db.query(House).filter(
+            and_(House.id == house_id, House.user_id == user_id)
+        ).first()
+        if not house:
+            return "House not found."
+
+        existing = db.query(Room).filter(
+            and_(Room.house_id == house_id, Room.name == name)
+        ).first()
+        if existing:
+            return f"A room named '{name}' already exists in {house.name}."
+
+        try:
+            floor_value = FloorType(floor) if floor else FloorType.ENTRANCE
+        except ValueError:
+            floor_value = FloorType.ENTRANCE
+        try:
+            room_type_value = RoomType(room_type) if room_type else RoomType.OTHER
+        except ValueError:
+            room_type_value = RoomType.OTHER
+
+        room = Room(name=name, floor=floor_value, room_type=room_type_value, house_id=house_id)
+        db.add(room)
+        db.commit()
+        return f"Created room '{name}' in {house.name} (ID: {room.id})."
+
+    def _delete_room(self, user_id: UUID, room_id: UUID, db: Session) -> str:
+        """Delete a room owned by the user (cascades to devices)."""
+        room = (
+            db.query(Room)
+            .join(House, Room.house_id == House.id)
+            .filter(and_(Room.id == room_id, House.user_id == user_id))
+            .first()
+        )
+        if not room:
+            return "Room not found."
+
+        room_name = room.name
+        db.delete(room)
+        db.commit()
+        return f"Deleted room '{room_name}'."
+
+    def _create_device(
+        self,
+        user_id: UUID,
+        room_id: UUID,
+        name: str,
+        device_type: Any,
+        db: Session,
+    ) -> str:
+        """Create a device in a room owned by the user."""
+        room = (
+            db.query(Room)
+            .join(House, Room.house_id == House.id)
+            .filter(and_(Room.id == room_id, House.user_id == user_id))
+            .first()
+        )
+        if not room:
+            return "Room not found."
+
+        try:
+            device_type_enum = DeviceType(int(device_type))
+        except (ValueError, TypeError):
+            return f"Invalid device type '{device_type}'. Use an integer 0-20."
+
+        existing = db.query(Device).filter(
+            and_(Device.room_id == room_id, Device.name == name)
+        ).first()
+        if existing:
+            return f"A device named '{name}' already exists in {room.name}."
+
+        device = Device(
+            name=name,
+            type=device_type_enum,
+            parameters=get_default_parameters(device_type_enum),
+            room_id=room_id,
+        )
+        db.add(device)
+        db.commit()
+        return f"Created {device_type_enum.name} device '{name}' in {room.name} (ID: {device.id})."
+
+    def _delete_device(self, user_id: UUID, device_id: UUID, db: Session) -> str:
+        """Delete a device owned by the user."""
+        device = self._verify_device_ownership(user_id, device_id, db)
+        if isinstance(device, str):  # Error message
+            return device
+
+        device_name = device.name
+        db.delete(device)
+        db.commit()
+        return f"Deleted device '{device_name}'."
+
     # ============== Automation Functions ==============
     
     def _create_time_automation(

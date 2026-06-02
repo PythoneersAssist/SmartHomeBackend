@@ -10,3 +10,6 @@ class UpdateUserModel(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     password: Optional[str] = None
+
+class ConfirmDeletionModel(BaseModel):
+    token: str

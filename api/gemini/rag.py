@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
-from database.models import User, Device, Room, House
+from database.models import User, Device, Room, House, Automation
 
 
 logger = logging.getLogger(__name__)
@@ -254,10 +254,66 @@ class RAGContext:
         },
     }
     
+    # Numeric device type code (see database.enums.DeviceType) used when
+    # creating devices through the assistant.
+    DEVICE_TYPE_CODES = {
+        "LIGHT": 0, "LED_STRIP": 1, "OUTLET": 2, "FAN": 3, "THERMOSTAT": 4,
+        "AC": 5, "HUMIDIFIER": 6, "HEATER": 7, "GARAGE_DOOR": 8, "GATE": 9,
+        "TV": 10, "SPEAKER": 11, "OVEN": 12, "DISHWASHER": 13, "WASHER": 14,
+        "DRYER": 15, "REFRIGERATOR": 16, "CURTAINS": 17, "ROUTER": 18,
+        "HUB": 19, "OTHER": 20,
+    }
+
+    # Short reference of the actions the assistant can perform, surfaced to the
+    # model so it knows what is possible and what the constraints are.
+    CAPABILITIES = [
+        "Query houses, rooms, devices and their current parameters.",
+        "Turn devices on/off and set parameters (brightness, volume, temperature, etc.).",
+        "Create, update and delete time, temperature and light (lux) automations.",
+        "Create and delete houses, rooms and devices.",
+        "Report real-time and historical energy consumption.",
+        "Temperature automations only work in a house that has a THERMOSTAT.",
+        "Light (lux) automations only work in a house that has a LIGHT or LED_STRIP.",
+    ]
+
     @staticmethod
     def get_device_documentation(device_type: str) -> Optional[dict]:
         """Get documentation for a specific device type."""
         return RAGContext.DEVICE_DOCUMENTATION.get(device_type)
+
+    @staticmethod
+    def get_capabilities_context() -> str:
+        """Generate a description of what the assistant can do."""
+        context = "\\n=== Assistant Capabilities ===\\n"
+        for capability in RAGContext.CAPABILITIES:
+            context += f"- {capability}\\n"
+        return context
+
+    @staticmethod
+    def get_automations_context(user_id: UUID, db: Session) -> str:
+        """Summarise the automations currently configured across the user's homes."""
+        automations = (
+            db.query(Automation)
+            .join(Device, Automation.device_id == Device.id)
+            .join(Room, Device.room_id == Room.id)
+            .join(House, Room.house_id == House.id)
+            .filter(House.user_id == user_id)
+            .all()
+        )
+
+        if not automations:
+            return "\\n=== Automations ===\\n(No automations configured yet.)\\n"
+
+        context = "\\n=== Automations ===\\n"
+        for automation in automations:
+            trigger = automation.trigger_type.name if automation.trigger_type is not None else "UNKNOWN"
+            action = "ON" if automation.turn_on else "OFF"
+            device_name = automation.device.name if automation.device else "?"
+            context += (
+                f"- {automation.name} [{trigger}] on {device_name}: "
+                f"turn {action} at/above {automation.trigger_value}\\n"
+            )
+        return context
     
     @staticmethod
     def get_user_context(user_id: UUID, db: Session) -> str:

@@ -1,10 +1,7 @@
-import logging
 from os import getenv
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
-
-logger = logging.getLogger("uvicorn.error")
 
 # DATABASE_URL is provided by the hosting platform (e.g. Azure App Settings).
 # Falls back to a local SQLite file for development.
@@ -22,18 +19,6 @@ engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False} if is_sqlite else {},
     pool_pre_ping=not is_sqlite,
-)
-
-# Diagnostic: log the connection target SQLAlchemy actually parsed (never the
-# password). If the host/username here doesn't match your real DB, the
-# DATABASE_URL is mis-parsed (usually unencoded special chars in credentials).
-logger.warning(
-    "DB connection target -> dialect=%s host=%r port=%r user=%r database=%r",
-    engine.url.get_backend_name(),
-    engine.url.host,
-    engine.url.port,
-    engine.url.username,
-    engine.url.database,
 )
 
 SessionLocal = sessionmaker(autocommit = False, autoflush = False, bind = engine)

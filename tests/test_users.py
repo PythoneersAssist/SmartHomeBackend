@@ -1,6 +1,8 @@
 """Tests for user endpoints (/user/*)."""
 
 import pytest
+from database.enums import DeviceType, FloorType
+from database.models import Room
 from tests.conftest import (
     TEST_USER,
     TEST_USER_2,
@@ -251,3 +253,77 @@ class TestUpdateUser:
 
         resp = client.get("/user/get", headers=auth_header(token))
         assert resp.json()["username"] == "newname"
+
+
+# ── GET /user/get_devices ─────────────────────────────────────────────────────
+
+class TestGetUserDevices:
+    """/user/get_devices returns every device the user owns, grouped by
+    house name → room name → device list."""
+
+    def _house(self, client, token, name):
+        client.post("/home/create", json={"name": name, "description": "x"}, headers=auth_header(token))
+        houses = client.get("/home/get", headers=auth_header(token)).json()["houses"]
+        return next(h["id"] for h in houses if h["name"] == name)
+
+    def _room(self, db_session, house_id, name):
+        from uuid import UUID
+        room = Room(name=name, floor=FloorType.FLOOR_1, house_id=UUID(house_id))
+        db_session.add(room)
+        db_session.commit()
+        db_session.refresh(room)
+        return str(room.id)
+
+    def _device(self, client, token, room_id, name, device_type=DeviceType.LIGHT.value):
+        client.post(
+            "/devices/create",
+            json={"name": name, "device_type": device_type, "room_id": room_id},
+            headers=auth_header(token),
+        )
+
+    def test_get_devices_empty(self, client):
+        _, token = create_user_and_login(client)
+        resp = client.get("/user/get_devices", headers=auth_header(token))
+        assert resp.status_code == 200
+        assert resp.json() == {}
+
+    def test_get_devices_grouped_structure(self, client, db_session):
+        _, token = create_user_and_login(client)
+        house_id = self._house(client, token, "Grouped House")
+        room_id = self._room(db_session, house_id, "Living Room")
+        self._device(client, token, room_id, "Lamp")
+        self._device(client, token, room_id, "Fan", DeviceType.FANS.value)
+
+        body = client.get("/user/get_devices", headers=auth_header(token)).json()
+        assert "Grouped House" in body
+        assert "Living Room" in body["Grouped House"]
+        devices = body["Grouped House"]["Living Room"]
+        names = {d["name"] for d in devices}
+        assert names == {"Lamp", "Fan"}
+        # Each device entry should carry its house/room context.
+        for d in devices:
+            assert d["house_name"] == "Grouped House"
+            assert d["room_name"] == "Living Room"
+            assert d["room_id"] == room_id
+
+    def test_get_devices_only_own(self, client, db_session):
+        _, token1 = create_user_and_login(client, TEST_USER)
+        house1 = self._house(client, token1, "U1 House")
+        room1 = self._room(db_session, house1, "U1 Room")
+        self._device(client, token1, room1, "U1 Device")
+
+        create_test_user(client, TEST_USER_2)
+        token2 = get_auth_token(client, TEST_USER_2["username"], TEST_USER_2["password"])
+        house2 = self._house(client, token2, "U2 House")
+        room2 = self._room(db_session, house2, "U2 Room")
+        self._device(client, token2, room2, "U2 Device")
+
+        body2 = client.get("/user/get_devices", headers=auth_header(token2)).json()
+        assert "U2 House" in body2
+        assert "U1 House" not in body2
+        all_names = {d["name"] for rooms in body2.values() for devices in rooms.values() for d in devices}
+        assert all_names == {"U2 Device"}
+
+    def test_get_devices_unauthenticated(self, client):
+        resp = client.get("/user/get_devices")
+        assert resp.status_code in (401, 403)

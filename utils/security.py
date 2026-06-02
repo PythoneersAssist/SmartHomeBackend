@@ -29,6 +29,33 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+def create_purposed_token(subject: str, purpose: str, expires_minutes: int) -> str:
+    """Create a short-lived JWT scoped to a single purpose.
+
+    Used for one-off actions such as password resets and account deletion. The
+    `purpose` claim is checked on verification so a token minted for one action
+    cannot be replayed against another.
+    """
+    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    payload = {"sub": str(subject), "purpose": purpose, "exp": expire}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def verify_purposed_token(token: str, purpose: str) -> str:
+    """Verify a purpose-scoped token and return its subject.
+
+    Raises `JWTError` if the token is invalid, expired, or was issued for a
+    different purpose.
+    """
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    if payload.get("purpose") != purpose:
+        raise JWTError("Token purpose mismatch")
+    subject = payload.get("sub")
+    if not subject:
+        raise JWTError("Token subject missing")
+    return subject
+
+
 def verify_token(token: str) -> dict:
     """Decode and verify a JWT access token.
 

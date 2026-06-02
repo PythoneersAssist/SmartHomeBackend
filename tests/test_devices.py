@@ -522,6 +522,93 @@ class TestUpdateDevice:
         assert after_params["type"] == original["type"]
 
 
+# ── PUT /devices/update (moving between rooms) ────────────────────────────────
+
+class TestMoveDevice:
+    """The update endpoint also relocates a device via the optional room_id field."""
+
+    def _setup_device(self, client, db_session, name="Movable", device_type=DeviceType.LIGHT.value):
+        token, house_id, room_id = setup_house_and_room(client, db_session)
+        create_device_via_api(client, token, name, device_type, room_id)
+        device_id = get_all_devices(client, token)[0]["id"]
+        return token, house_id, room_id, device_id
+
+    def test_move_device_to_another_room_same_house(self, client, db_session):
+        token, house_id, room_id, device_id = self._setup_device(client, db_session)
+        target_room_id = create_room_in_db(db_session, house_id, name="Target Room")
+
+        resp = client.put(
+            "/devices/update",
+            json={"device_id": device_id, "room_id": target_room_id},
+            headers=auth_header(token),
+        )
+        assert resp.status_code == 200
+
+        moved = client.get(f"/devices/get_id/{device_id}", headers=auth_header(token)).json()
+        assert moved["room_id"] == target_room_id
+
+    def test_move_device_to_nonexistent_room(self, client, db_session):
+        token, _, _, device_id = self._setup_device(client, db_session)
+        resp = client.put(
+            "/devices/update",
+            json={"device_id": device_id, "room_id": str(uuid4())},
+            headers=auth_header(token),
+        )
+        assert resp.status_code == 404
+        assert "room not found" in resp.json()["detail"].lower()
+
+    def test_move_device_to_another_users_room(self, client, db_session):
+        token1, _, _, device_id = self._setup_device(client, db_session)
+
+        # User 2 owns a separate house/room.
+        create_test_user(client, TEST_USER_2)
+        token2 = get_auth_token(client, TEST_USER_2["username"], TEST_USER_2["password"])
+        house_id_2 = create_house(client, token2, {"name": "User2 House", "description": "u2"})
+        foreign_room_id = create_room_in_db(db_session, house_id_2, name="Foreign Room")
+
+        resp = client.put(
+            "/devices/update",
+            json={"device_id": device_id, "room_id": foreign_room_id},
+            headers=auth_header(token1),
+        )
+        assert resp.status_code == 403
+        assert "access" in resp.json()["detail"].lower()
+
+    def test_move_device_name_conflict_in_target_room(self, client, db_session):
+        """Moving a device into a room that already has a device with the same name fails."""
+        token, house_id, room_id, device_id = self._setup_device(client, db_session, name="Lamp")
+        target_room_id = create_room_in_db(db_session, house_id, name="Conflict Room")
+        # Pre-existing device with the same name in the target room.
+        create_device_via_api(client, token, "Lamp", DeviceType.LIGHT.value, target_room_id)
+
+        resp = client.put(
+            "/devices/update",
+            json={"device_id": device_id, "room_id": target_room_id},
+            headers=auth_header(token),
+        )
+        assert resp.status_code == 400
+        assert "already exists" in resp.json()["detail"].lower()
+
+        # The device should not have moved.
+        unchanged = client.get(f"/devices/get_id/{device_id}", headers=auth_header(token)).json()
+        assert unchanged["room_id"] == room_id
+
+    def test_move_and_rename_simultaneously(self, client, db_session):
+        token, house_id, _, device_id = self._setup_device(client, db_session, name="OldName")
+        target_room_id = create_room_in_db(db_session, house_id, name="Dest Room")
+
+        resp = client.put(
+            "/devices/update",
+            json={"device_id": device_id, "room_id": target_room_id, "name": "NewName"},
+            headers=auth_header(token),
+        )
+        assert resp.status_code == 200
+
+        moved = client.get(f"/devices/get_id/{device_id}", headers=auth_header(token)).json()
+        assert moved["room_id"] == target_room_id
+        assert moved["name"] == "NewName"
+
+
 # ── DELETE /devices/delete/{device_id} ────────────────────────────────────────
 
 class TestDeleteDevice:

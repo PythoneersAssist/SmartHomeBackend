@@ -1,8 +1,0 @@
-- Add more functions for the chatbot (create_house, create_device, delete_device, create_room, etc.)
-- Fix automations to not trigger on temperature if there's not a thermostat in the house, same for light
-- Add more information in the rag db (device info, functions, etc.)
-- Simulate household temperature
-- Device presets (Samsung TV)
-- Add forgot password email
-- User deletion request
-- Deployment (Continuous cu teste)
