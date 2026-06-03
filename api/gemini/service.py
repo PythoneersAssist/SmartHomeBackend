@@ -4,6 +4,7 @@ Handles chat interactions, function calling, and device control orchestration.
 Uses Groq cloud with llama-3.1-8b-instant model.
 """
 import os
+import re
 import json
 import logging
 from typing import Any, Optional
@@ -194,22 +195,70 @@ Current date/time context: Use this when interpreting user requests about timing
             # text-only response with no more tool calls.
             max_iterations = 10  # Safety limit to prevent infinite loops
             for _iteration in range(max_iterations):
-                response = await self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=tools,
-                    tool_choice="auto",
-                    parallel_tool_calls=False,
-                )
-                
+                try:
+                    response = await self.client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                        tools=tools,
+                        tool_choice="auto",
+                        parallel_tool_calls=False,
+                    )
+                except Exception as create_error:
+                    # llama-3.3-70b on Groq intermittently emits a malformed tool
+                    # call like `<function=name,{...json...}></function>`, which Groq
+                    # rejects with a 400 `tool_use_failed`. The offending text is
+                    # returned in the error body, so recover the intended call(s),
+                    # execute them, and continue the loop instead of failing.
+                    recovered = self._recover_tool_calls_from_error(create_error)
+                    if not recovered:
+                        raise
+
+                    tool_calls_serialized = [
+                        {
+                            "id": f"recovered_{_iteration}_{idx}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": json.dumps(args)},
+                        }
+                        for idx, (name, args) in enumerate(recovered)
+                    ]
+                    messages.append({
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": tool_calls_serialized,
+                    })
+                    for tc in tool_calls_serialized:
+                        func_name = tc["function"]["name"]
+                        func_args = json.loads(tc["function"]["arguments"])
+                        logger.warning(
+                            f"Recovered malformed tool call: {func_name}({func_args})"
+                        )
+                        func_result = await self._execute_function_call(
+                            user_id=user_id,
+                            function_name=func_name,
+                            function_args=func_args,
+                            db=db,
+                        )
+                        executed_functions.append({
+                            "name": func_name,
+                            "args": func_args,
+                            "result": func_result,
+                        })
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": str(func_result),
+                        })
+                    response_text = ""
+                    continue
+
                 choice = response.choices[0]
                 assistant_message = choice.message
-                
+
                 # If there are no tool calls, extract text and break
                 if not assistant_message.tool_calls:
                     response_text = assistant_message.content or ""
                     break
-                
+
                 # Append the assistant message (with tool calls) to conversation
                 # We need to serialize it properly for the messages list
                 tool_calls_serialized = []
@@ -222,40 +271,40 @@ Current date/time context: Use this when interpreting user requests about timing
                             "arguments": tc.function.arguments,
                         }
                     })
-                
+
                 messages.append({
                     "role": "assistant",
                     "content": assistant_message.content or "",
                     "tool_calls": tool_calls_serialized,
                 })
-                
+
                 # Execute each tool call and collect results
                 for tc in assistant_message.tool_calls:
                     func_name = tc.function.name
                     func_args = json.loads(tc.function.arguments)
-                    
+
                     logger.info(f"Executing function call: {func_name}({func_args})")
-                    
+
                     func_result = await self._execute_function_call(
                         user_id=user_id,
                         function_name=func_name,
                         function_args=func_args,
                         db=db,
                     )
-                    
+
                     executed_functions.append({
                         "name": func_name,
                         "args": func_args,
                         "result": func_result,
                     })
-                    
+
                     # Append tool result message
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "content": str(func_result),
                     })
-                
+
                 # Reset response_text so we pick up the new text from next turn
                 response_text = ""
             
@@ -265,6 +314,64 @@ Current date/time context: Use this when interpreting user requests about timing
             logger.error(f"Error in AI chat: {e}")
             raise
     
+    def _recover_tool_calls_from_error(self, error: Exception) -> list[tuple[str, dict[str, Any]]]:
+        """Extract tool calls from a Groq `tool_use_failed` error.
+
+        When the model emits a malformed function tag, Groq returns a 400 and
+        includes the raw text in `error.body['error']['failed_generation']`.
+        Pull that out and parse the intended call(s) from it.
+        """
+        failed_generation = None
+        body = getattr(error, "body", None)
+        if isinstance(body, dict):
+            err = body.get("error")
+            if isinstance(err, dict):
+                failed_generation = err.get("failed_generation")
+
+        if not failed_generation:
+            return []
+
+        recovered = self._parse_malformed_function_calls(failed_generation)
+        if recovered:
+            logger.warning(
+                "Recovered %d tool call(s) from malformed Groq generation: %r",
+                len(recovered), failed_generation,
+            )
+        return recovered
+
+    @staticmethod
+    def _parse_malformed_function_calls(text: str) -> list[tuple[str, dict[str, Any]]]:
+        """Parse function calls out of malformed model output.
+
+        Handles both the well-formed `<function=name>{json}</function>` and the
+        broken `<function=name,{json}></function>` variants that llama-3.3-70b
+        produces on Groq.
+        """
+        calls: list[tuple[str, dict[str, Any]]] = []
+        for match in re.finditer(r"<function=(.*?)>(.*?)</function>", text, re.DOTALL):
+            head = match.group(1).strip()
+            inner = match.group(2).strip()
+
+            if inner.startswith("{"):
+                # Well-formed: name in the tag, JSON between the tags.
+                name = head.rstrip(",").strip()
+                args_str = inner
+            else:
+                # Broken: name and JSON both live in the tag, e.g. `name,{...}`.
+                brace = head.find("{")
+                if brace == -1:
+                    continue
+                name = head[:brace].rstrip(",").strip()
+                args_str = head[brace:]
+
+            try:
+                args = json.loads(args_str)
+            except json.JSONDecodeError:
+                continue
+            if name:
+                calls.append((name, args))
+        return calls
+
     @staticmethod
     def _sanitize_uuid(value: str) -> str:
         """Strip curly braces and whitespace that the LLM sometimes adds to UUIDs."""
